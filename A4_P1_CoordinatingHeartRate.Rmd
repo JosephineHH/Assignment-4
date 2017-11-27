@@ -1,0 +1,1057 @@
+---
+title: "Assignment 4 - Coordinating Heart Rate"
+author: "Riccardo Fusaroli"
+date: "November 6, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Analysing Heart Rate and Respiration data
+
+The goal of this assignment is to first familiarize you with heart rate, and respiration data and their preprocessing. The second part explores how to analyze interpersonal coordination of these signals.
+
+These are the questions you need to be able to answer at the end of the assignment (aka that you need to submit as part of the portfolio)
+
+1) How do you preprocess heart rate and respiration data? Describe the process. If any data needs to be excluded, list the excluded data and motivate the exclusion.
+
+2) Do you observe interpersonal coordination in heart rate and respiration? Describe your control baseline, the method used to quantify coordination, and the statistical models used to infer whether coordination was higher than in the baseline. Report the results of the models.
+
+3) Do you observe differences in coordination between conditions? Report the models and results.
+
+4) Is respiration coordination a likely driver of heart rate coordination? Describe how you would test for it. Bonus points if you actually run the tests and report methods and results.
+
+N.B. to give you a bit more data I included data from last year (Study1) and from your class (Study2). Note that synchronouns and turn-taking are the same across both studies, but the third condition is different: last year it was self-paced joint reading; this year it was the tv-series conversation. So you might want to exclude the self-paced reading (but, up to you!)
+
+## Step by step suggestions to solve the assignment
+
+### Exploring physiological signals
+
+- Choose one pair (one pair, three conditions)
+- Load the logs
+- Produce a plot of the participants' respiration signal and a different one of the participants' HR signal (for inspecting whether the data is usable)
+  N.B: remember the slides: artifacts, downsampling, scaling.
+  N.B. The gridExtra::grid.arrange() function allows you to display the plots side by side. E.g. grid.arrange(plot1, plot2, plot3, ncol=3)
+- Can you eye-ball which condition if any displays more physiological coordination?
+
+
+```{r}
+#I choose you! (pair 5, because, you know, Riccardo told us to)
+
+#read in the data
+syncData = read.csv("data/Study2_G5_T1_Synchronous.csv")
+turnData = read.csv("data/Study2_G5_T2_TurnTaking.csv")
+convData = read.csv("data/Study2_G5_T3_Conversation.csv")
+
+
+
+#------------------------------------------------#
+#Start with downsampling
+library(groupdata2)
+library(magrittr)
+
+syncData = syncData %>%
+  group(n = 100, method = "greedy") %>%
+  dplyr::summarise(
+    time = mean(time, na.rm = T),
+    HR1 = mean(HR1, na.rm = T),
+    HR2 = mean(HR2, na.rm = T),
+    Resp1 = mean(Resp1, na.rm = T),
+    Resp2 = mean(Resp2, na.rm = T))
+
+convData = convData %>%
+  group(n = 100, method = "greedy") %>%
+  dplyr::summarise(
+    time = mean(time, na.rm = T),
+    HR1 = mean(HR1, na.rm = T),
+    HR2 = mean(HR2, na.rm = T),
+    Resp1 = mean(Resp1, na.rm = T),
+    Resp2 = mean(Resp2, na.rm = T))
+
+turnData = turnData %>%
+  group(n = 100, method = "greedy") %>%
+  dplyr::summarise(
+    time = mean(time, na.rm = T),
+    HR1 = mean(HR1, na.rm = T),
+    HR2 = mean(HR2, na.rm = T),
+    Resp1 = mean(Resp1, na.rm = T),
+    Resp2 = mean(Resp2, na.rm = T))
+
+#------------------------------------------------#
+#remove outliers
+removeOuts = function(ts, threshold){
+  ts[ts > (mean(ts, na.rm = T)+
+       (threshold*sd(ts, na.rm = T))) |
+  ts < (mean(ts, na.rm = T)-
+          (threshold*sd(ts, na.rm = T)))]=
+    mean(ts, na.rm = T)
+  return(ts)}
+threshold = 2.5
+
+#convData
+#add scale around because.. DOuble work
+convData$HR1 = scale(removeOuts(convData$HR1, threshold))
+convData$HR2 = scale(removeOuts(convData$HR2, threshold))
+convData$Resp1 = scale(removeOuts(convData$Resp1, threshold))
+convData$Resp2 = scale(removeOuts(convData$Resp2, threshold))
+
+#syncData
+syncData$HR1 = scale(removeOuts(syncData$HR1, threshold))
+syncData$HR2 = scale(removeOuts(syncData$HR2, threshold))
+syncData$Resp1 = scale(removeOuts(syncData$Resp1, threshold))
+syncData$Resp2 = scale(removeOuts(syncData$Resp2, threshold))
+
+#TurnData
+turnData$HR1 = scale(removeOuts(turnData$HR1, threshold))
+turnData$HR2 = scale(removeOuts(turnData$HR2, threshold))
+turnData$Resp1 = scale(removeOuts(turnData$Resp1, threshold))
+turnData$Resp2 = scale(removeOuts(turnData$Resp2, threshold))
+
+
+#Make plots 
+library(ggplot2)
+
+resp1 = ggplot(data = syncData)+
+  geom_line(aes(x = time, y = Resp1), colour = "Steelblue")+
+  geom_line(aes(x = time, y = Resp2))+
+  labs(x = "Time", y = "Respiration", title = "Respiration synchronous data")
+#Data looks fine
+
+HR1 = ggplot(data = syncData)+
+  geom_line(aes(x = time, y = HR1), colour = "Steelblue")+
+  geom_line(aes(x = time, y = HR2))+
+  labs(x = "Time", y = "Heartrate", title = "Heart rate synchronous data")
+#Data looks fine
+
+resp2 = ggplot(data = convData)+
+  geom_line(aes(x = time, y = Resp1), colour = "Steelblue")+
+  geom_line(aes(x = time, y = Resp2))+
+  labs(x = "Time", y = "Respiration", title = "Respiration conversation data")
+#Data looks fine
+
+HR2 = ggplot(data = convData)+
+  geom_line(aes(x = time, y = HR1), colour = "Steelblue")+
+  geom_line(aes(x = time, y = HR2))+
+  labs(x = "Time", y = "Heartrate", title = "Heart rate conversation data")
+#The data looks fine
+
+resp3 = ggplot(data = turnData)+
+  geom_line(aes(x = time, y = Resp1), colour = "Steelblue")+
+  geom_line(aes(x = time, y = Resp2))+
+  labs(x = "Time", y = "Respiration", title = "Respiration turn data")
+#Data looks fine
+
+HR3 = ggplot(data = turnData)+
+  geom_line(aes(x = time, y = HR1), colour = "Steelblue")+
+  geom_line(aes(x = time, y = HR2))+
+  labs(x = "Time", y = "Heartrate", title = "Heart rate turn data")
+#The data looks fine
+
+
+#Use gridarrange to see plots side by side
+gridExtra::grid.arrange(resp1, resp2, resp3, HR1, HR2, HR3)
+#It is really hard to eyeball it, but maybe the respiration data for the synchronous reading looks a little correlated
+
+```
+
+
+
+- Run crqa on heart rate and respiration data (find parameters, run crqa)
+- Does this tell you more than just eyeballing the plots?
+
+
+```{r}
+#Library
+library(tseriesChaos)
+library(crqa)
+
+#find parameters
+par = list(lgM = 50, steps = seq(1, 6, 1), radiusspan = 100, radiussample = 40, normalize = 0, rescale = 0, mindiagline = 2, minvertline = 2, tw = 0, whiteline = F, recpt = FALSE, fnnpercent = 10, typeami = "mindip")
+
+#Run ans on the three different conditions
+#First for Respiration
+ansConvResp = try(optimizeParam(convData$Resp1, convData$Resp2, par, min.rec = 2, max.rec = 8))
+
+ansSyncResp = try(optimizeParam(syncData$Resp1, syncData$Resp2, par, min.rec = 2, max.rec = 8))
+#No answer
+
+ansTurnResp = try(optimizeParam(turnData$Resp1, turnData$Resp2, par, min.rec = 2, max.rec = 8))
+
+#Calculate mean
+#need to take mean here - we only have 2 points
+radius = mean(ansConvResp$radius, ansTurnResp$radius)
+emdbed = mean(ansConvResp$emddim, ansTurnResp$emddim)
+delay = mean(ansConvResp$delay, ansTurnResp$delay)
+
+#Calculate CRQA ----------------------------------
+resultsConvResp = crqa(convData$Resp1, convData$Resp2, delay = delay, embed = embed, radius = radius, normalize = 0, rescale = 0, mindiagline = 2, minvertline = 2)
+
+resultsSyncResp = crqa(syncData$Resp1, syncData$Resp2, delay = delay, embed = embed, radius = radius, normalize = 0, rescale = 0, mindiagline = 2, minvertline = 2)
+
+resultsTurnResp = crqa(turnData$Resp1, turnData$Resp2, delay = delay, embed = embed, radius = radius, normalize = 0, rescale = 0, mindiagline = 2, minvertline = 2)
+
+#HR is within means
+
+#The same for HR
+ansConvHR = try(optimizeParam(convData$HR1, convData$HR2, par, min.rec = 2, max.rec = 8))
+#No answer
+
+ansSyncHR = try(optimizeParam(syncData$HR1, syncData$HR2, par, min.rec = 2, max.rec = 8))
+#No answer
+
+ansTurnHR = try(optimizeParam(turnData$HR1, turnData$HR2, par, min.rec = 2, max.rec = 8))
+#No answer
+#We cannot calculate it for HR, as we get no optimal parameters for any of the frames.
+
+
+#Make plots?
+
+
+```
+
+
+### Systematically pre-process the data
+- Loop through all the files (either with a loop or with a function), check which files should be excluded, if any, and save the pre-processed time-series. Tip: plot and visually inspect the data to figure out which should be excluded.
+
+```{r}
+#Get a list of files
+files = list.files(path = "C:/Users/hille/OneDrive/Cognitive Science at Aarhus University/2017 - Experimental Methods 3/assignments/Assignment-4/data")
+
+preprocFunc = function(file){
+  print(file)
+  dataName = paste("data/", file, sep = "")
+  data = read.csv(dataName)
+  
+  #Downsample
+  data = data %>%
+  group(n = 100, method = "greedy") %>%
+  dplyr::summarise(
+    time = mean(time, na.rm = T),
+    HR1 = mean(HR1, na.rm = T),
+    HR2 = mean(HR2, na.rm = T),
+    Resp1 = mean(Resp1, na.rm = T),
+    Resp2 = mean(Resp2, na.rm = T))
+  
+  #Scale and remove outs
+  data$HR1 = scale(removeOuts(data$HR1, threshold))
+  data$HR2 = scale(removeOuts(data$HR2, threshold))
+  data$Resp1 = scale(removeOuts(data$Resp1, threshold))
+  data$Resp2 = scale(removeOuts(data$Resp2, threshold))
+  
+  
+  fileName = paste("dataProc/", file, sep = "")
+  
+  #Save as new files
+  write.csv(data, file = fileName)
+}
+
+
+lapply(files, preprocFunc)
+
+```
+
+#Now that we are done with this lets plot and look if we need to remove something
+```{r}
+filesProc = list.files(path = "C:/Users/hille/OneDrive/Cognitive Science at Aarhus University/2017 - Experimental Methods 3/assignments/Assignment-4/dataProc")
+
+
+N = 1
+
+for (file in filesProc){
+  dataName = paste("dataProc/", file, sep = "")
+  
+  
+  data = read.csv(dataName)
+  
+  #HR
+  plotHR = ggplot(data = data)+
+  geom_line(aes(x = time, y = HR1), colour = "Steelblue")+
+  geom_line(aes(x = time, y = HR2))+
+  labs(x = "Time", y = "Heartrate", title = "Heart Rate")
+  
+  assign(paste("plotHR", N, sep = ""), plotHR)
+  
+  
+  #Resp
+  plotResp = ggplot(data = data)+
+  geom_line(aes(x = time, y = Resp1), colour = "Steelblue")+
+  geom_line(aes(x = time, y = Resp2))+
+  labs(x = "Time", y = "Respiration", title = "Respiration")
+  
+  assign(paste("plotResp", N, sep = ""), plotResp)
+  
+  N = N+1
+}
+
+gridExtra::grid.arrange(plotResp1, plotHR1) #Flat resp for one participant on respiration
+gridExtra::grid.arrange(plotResp2, plotHR2) #Flat resp for one participant on respiration
+gridExtra::grid.arrange(plotResp3, plotHR3) #Good
+gridExtra::grid.arrange(plotResp4, plotHR4) #Flat resp for one participant on respiration
+gridExtra::grid.arrange(plotResp5, plotHR5) #Flat resp for one participant on respiration
+gridExtra::grid.arrange(plotResp6, plotHR6) #Good
+gridExtra::grid.arrange(plotResp7, plotHR7) # ONe part with drop/part for HR - maybe take it out?
+gridExtra::grid.arrange(plotResp8, plotHR8) #Good
+gridExtra::grid.arrange(plotResp9, plotHR9) #One part with flat respiration - maybe take it out?
+gridExtra::grid.arrange(plotResp10, plotHR10) #Good
+gridExtra::grid.arrange(plotResp11, plotHR11) #Good
+gridExtra::grid.arrange(plotResp12, plotHR12) #Good
+gridExtra::grid.arrange(plotResp13, plotHR13) #Good
+gridExtra::grid.arrange(plotResp14, plotHR14) #Good
+gridExtra::grid.arrange(plotResp15, plotHR15) #Good
+gridExtra::grid.arrange(plotResp16, plotHR16) #Good
+gridExtra::grid.arrange(plotResp17, plotHR17) #Good
+gridExtra::grid.arrange(plotResp18, plotHR18) #Good
+gridExtra::grid.arrange(plotResp19, plotHR19) #Good
+gridExtra::grid.arrange(plotResp20, plotHR20) #Good
+gridExtra::grid.arrange(plotResp21, plotHR21) #Good
+gridExtra::grid.arrange(plotResp22, plotHR22) #Good
+gridExtra::grid.arrange(plotResp23, plotHR23) #Good
+gridExtra::grid.arrange(plotResp24, plotHR24) # multiple parts with flat respiration
+gridExtra::grid.arrange(plotResp25, plotHR25) #Good
+gridExtra::grid.arrange(plotResp26, plotHR26) #Good
+gridExtra::grid.arrange(plotResp27, plotHR27) #Good
+gridExtra::grid.arrange(plotResp28, plotHR28) #Good
+gridExtra::grid.arrange(plotResp29, plotHR29) #Good
+gridExtra::grid.arrange(plotResp30, plotHR30) #Good
+
+#We will remove the data from trial 1 and 2 group one
+#Remove data from trial 1 and 2 for group 2
+#remove data from trial 1 and 3 for group 3
+#Remove data from trial 3 for group 7
+
+#List of data for further analysis
+#for the first 4 pairs the conversation data was something different. Remove this as well.
+#that is datafile #3, 6, 7, 11
+filesAnalysis = filesProc[-c(1:7,9,11, 24)]
+
+
+```
+
+
+
+
+- Run crqa on all the pre-processed time-series and save the output (don't forget to add columns with study, group, condition and trial). Tip: remember to first assess optimal parameters (dimensions, delay, radius) across all timeseries. Tip: it will often fail, just take whatever parameters you get, select optimal across timeseries parameters and run crqa on all timeseries with those. Tip: double check the rr. When I ran the loop, I got very low rr, so I adjusted the radius until the average of rr across all pairs was approx. 4%.
+
+```{r}
+#WE ARE REEEAAAADEEEAY 
+#First assess optimalparameters
+
+#Variables we want
+HREmbed = NULL
+HRRadius = NULL
+HRDelay = NULL
+RespEmbed = NULL
+RespRadius = NULL
+RespDelay = NULL
+study = NULL
+group = NULL
+trial = NULL
+condition = NULL
+
+#N for counting
+N = 1
+
+for (file in filesAnalysis){
+  nameFile = paste("dataProc/", file, sep = "")
+  #read data
+  data = read.csv(nameFile)
+  
+  #find parameters
+  par = list(lgM = 30, steps = seq(1, 6, 1), radiusspan = 100, radiussample = 100, normalize = 0, rescale = 0, mindiagline = 2, minvertline = 2, tw = 0, whiteline = FALSE, recpt = FALSE, fnnpercent = 10, typeami = "mindip")
+
+  
+  #Try to get the optimal parameters
+  #For Resp
+  ansResp = try(optimizeParam(data$Resp1, data$Resp2, par, min.rec = 2, max.rec = 8))
+  
+  #Save ans
+  if (length(ansResp) > 2){
+    RespEmbed[N] = ansResp[2]
+    RespRadius[N] = ansResp[1]
+    RespDelay[N] = ansResp[3]
+  }
+  else{
+    RespEmbed[N] = NA
+    RespRadius[N] = NA
+    RespDelay[N] = NA
+  }
+  
+  #For HR------------------------------------------
+  ansHR = try(optimizeParam(data$HR1, data$HR2, par, min.rec = 2, max.rec = 8))
+  
+  if (length(ansHR) > 2){
+    HREmbed[N] = ansHR[2]
+    HRRadius[N] = ansHR[1]
+    HRDelay[N] = ansHR[3]
+  }
+  else{
+    HREmbed[N] = NA
+    HRRadius[N] = NA
+    HRDelay[N] = NA
+  }
+  
+  #Get variable names------------------------------
+  study[N] = substring(file, 6, 6)
+  group[N] = substring(sub("_T.*", "", file),9)
+  trial[N] = sub(".T*", "", sub("\\_.*", "", sub("^[^T]*", "", file)))
+  condition[N] = unlist(strsplit(gsub('.{4}$', '', file), "_"))[4]
+  
+  
+  N = N+1
+  }
+
+#Make it into a df
+HREmbed = unlist(HREmbed)
+HRDelay = unlist(HRDelay)
+HRRadius = unlist(HRRadius)
+respDelay = unlist(RespDelay)
+respEmbed = unlist(RespEmbed)
+respRadius = unlist(RespRadius)
+
+
+
+dfPar = data.frame(study, group, trial, condition, HREmbed, HRDelay, HRRadius, respEmbed, respDelay, respRadius)
+
+
+
+```
+
+#And now we can move on to the real crqa
+```{r}
+#Take the median of all the parameters
+HRD = median(dfCRQA$HRDelay, na.rm = T)
+#We are adding 1.2 to our HRRadius as Riccardo told us to do so. It is because we need RR to be around 4.
+#1.2 was too high. Try with .5
+#Too high. Try with .4
+#Try with .2 # Too low
+#Try with .3
+HRR = median(dfCRQA$HRRadius, na.rm = T)+.3
+HRE = median(dfCRQA$HREmbed, na.rm = T)
+rD = median(dfCRQA$respDelay, na.rm = T)
+rR = median(dfCRQA$respRadius, na.rm = T)
+rE = median(dfCRQA$respEmbed, na.rm = T)
+
+
+#Parameters we want to save
+#HR
+HR_RR = NULL
+HR_DET = NULL
+HR_NRLINE = NULL
+HR_maxL = NULL
+HR_L = NULL
+HR_ENTR = NULL
+HR_LAM = NULL
+HR_TT = NULL
+#Resp
+resp_RR = NULL
+resp_DET = NULL
+resp_NRLINE = NULL
+resp_maxL = NULL
+resp_L = NULL
+resp_ENTR = NULL
+resp_LAM = NULL
+resp_TT = NULL
+
+#N
+N = 1
+
+
+
+#Make the loopityloop for running throught the CRQA  YAY
+for (file in filesAnalysis){
+  nameFile = paste("dataProc/", file, sep = "")
+  #read data
+  data = read.csv(nameFile)
+  
+  #HR--------------------------------------------
+  resultsHR = try(crqa(data$HR1, data$HR2, delay = HRD, embed = HRE, radius = HRR, normalize = 0, rescale = 0, mindiagline = 2, minvertline = 2))
+  
+  if (length(resultsHR) > 1){
+    HR_RR[N] = resultsHR[1]
+    HR_DET [N] = resultsHR[2]
+    HR_NRLINE[N] = resultsHR[3]
+    HR_maxL[N] = resultsHR[4]
+    HR_L[N] = resultsHR[5]
+    HR_ENTR[N] = resultsHR[6]
+    HR_LAM[N] = resultsHR[8]
+    HR_TT[N] = resultsHR[9]
+  }
+  else{
+    HR_RR[N] = NA
+    HR_DET [N] = NA
+    HR_NRLINE[N] = NA
+    HR_maxL[N] = NA
+    HR_L[N] = NA
+    HR_ENTR[N] = NA
+    HR_LAM[N] = NA
+    HR_TT[N] = NA
+
+  }
+  
+  #Resp------------------------------------------
+  resultsResp = try(crqa(data$Resp1, data$Resp2, delay = rD, embed = rE, radius = rR, normalize = 0, rescale = 0, mindiagline = 2, minvertline = 2))
+  
+  
+  if (length(resultsResp) > 1){
+    resp_RR[N] = resultsResp[1]
+    resp_DET [N] = resultsResp[2]
+    resp_NRLINE[N] = resultsResp[3]
+    resp_maxL[N] = resultsResp[4]
+    resp_L[N] = resultsResp[5]
+    resp_ENTR[N] = resultsResp[6]
+    resp_LAM[N] = resultsResp[8]
+    resp_TT[N] = resultsResp[9]
+  }
+  else{
+    resp_RR[N] = NA
+    resp_DET [N] = NA
+    resp_NRLINE[N] = NA
+    resp_maxL[N] = NA
+    resp_L[N] = NA
+    resp_ENTR[N] = NA
+    resp_LAM[N] = NA
+    resp_TT[N] = NA
+
+  }
+  
+  
+  print(N)
+  N = N+1
+}
+
+#UNLIST
+
+
+HR_RR = unlist(HR_RR)
+HR_DET = unlist(HR_DET)
+HR_NRLINE = unlist(HR_NRLINE)
+HR_maxL = unlist(HR_maxL)
+HR_L = unlist(HR_L)
+HR_ENTR = unlist(HR_ENTR)
+HR_LAM = unlist(HR_LAM)
+HR_TT = unlist(HR_TT)
+#Resp
+resp_RR = unlist(resp_RR)
+resp_DET = unlist(resp_DET)
+resp_NRLINE = unlist(resp_NRLINE)
+resp_maxL = unlist(resp_maxL)
+resp_L = unlist(resp_L)
+resp_ENTR = unlist(resp_ENTR)
+resp_LAM = unlist(resp_LAM)
+resp_TT = unlist(resp_TT)
+
+
+#Add to the dataframe
+dfCRQA = data.frame(dfCRQA, HR_RR, HR_DET, HR_NRLINE, HR_maxL, HR_L, HR_ENTR, HR_LAM, HR_TT, resp_RR, resp_DET, resp_NRLINE, resp_maxL, resp_L, resp_ENTR, resp_LAM, resp_TT)
+
+
+```
+
+
+
+### Creating controls: shuffled controls
+ - loop through all pairs and conditions
+ - shuffle the timeseries (take a timeseries and rearrange its values in a random order). Tip check the sample() function
+ - run crqa and save the output. NB. which delay, embed, radius parameters should you use?
+ - statistically compare the crqa indexes in real and shuffled pairs
+ 
+```{r}
+#Should make CRQA into a function
+#We should use the same parameters as before -> In order to make it comparable. Hard if we do not have the same parameters.
+library(tidyverse)
+#Add column to our already excisting dataframe telling that it is real pairs
+dfCRQA = mutate(dfCRQA, pair = "Real")
+
+
+#Parameters we want to save
+#HR
+HR_RR = NULL
+HR_DET = NULL
+HR_NRLINE = NULL
+HR_maxL = NULL
+HR_L = NULL
+HR_ENTR = NULL
+HR_LAM = NULL
+HR_TT = NULL
+#Resp
+resp_RR = NULL
+resp_DET = NULL
+resp_NRLINE = NULL
+resp_maxL = NULL
+resp_L = NULL
+resp_ENTR = NULL
+resp_LAM = NULL
+resp_TT = NULL
+
+#N
+N = 1
+
+
+
+#Make the loopityloop for running throught the CRQA  YAY
+for (file in filesAnalysis){
+  nameFile = paste("dataProc/", file, sep = "")
+  #read data
+  data = read.csv(nameFile)
+  
+  #Shuffle the data by using sample()
+  data = data[sample(data$.groups),]
+  
+  #HR--------------------------------------------
+  resultsHR = try(crqa(data$HR1, data$HR2, delay = HRD, embed = HRE, radius = HRR, normalize = 0, rescale = 0, mindiagline = 2, minvertline = 2))
+  
+  if (length(resultsHR) > 1){
+    HR_RR[N] = resultsHR[1]
+    HR_DET [N] = resultsHR[2]
+    HR_NRLINE[N] = resultsHR[3]
+    HR_maxL[N] = resultsHR[4]
+    HR_L[N] = resultsHR[5]
+    HR_ENTR[N] = resultsHR[6]
+    HR_LAM[N] = resultsHR[8]
+    HR_TT[N] = resultsHR[9]
+  }
+  else{
+    HR_RR[N] = NA
+    HR_DET [N] = NA
+    HR_NRLINE[N] = NA
+    HR_maxL[N] = NA
+    HR_L[N] = NA
+    HR_ENTR[N] = NA
+    HR_LAM[N] = NA
+    HR_TT[N] = NA
+
+  }
+  
+  #Resp------------------------------------------
+  resultsResp = try(crqa(data$Resp1, data$Resp2, delay = rD, embed = rE, radius = rR, normalize = 0, rescale = 0, mindiagline = 2, minvertline = 2))
+  
+  
+  if (length(resultsResp) > 1){
+    resp_RR[N] = resultsResp[1]
+    resp_DET [N] = resultsResp[2]
+    resp_NRLINE[N] = resultsResp[3]
+    resp_maxL[N] = resultsResp[4]
+    resp_L[N] = resultsResp[5]
+    resp_ENTR[N] = resultsResp[6]
+    resp_LAM[N] = resultsResp[8]
+    resp_TT[N] = resultsResp[9]
+  }
+  else{
+    resp_RR[N] = NA
+    resp_DET [N] = NA
+    resp_NRLINE[N] = NA
+    resp_maxL[N] = NA
+    resp_L[N] = NA
+    resp_ENTR[N] = NA
+    resp_LAM[N] = NA
+    resp_TT[N] = NA
+
+  }
+  
+  
+  print(N)
+  N = N+1
+}
+
+#UNLIST
+
+
+HR_RR = unlist(HR_RR)
+HR_DET = unlist(HR_DET)
+HR_NRLINE = unlist(HR_NRLINE)
+HR_maxL = unlist(HR_maxL)
+HR_L = unlist(HR_L)
+HR_ENTR = unlist(HR_ENTR)
+HR_LAM = unlist(HR_LAM)
+HR_TT = unlist(HR_TT)
+#Resp
+resp_RR = unlist(resp_RR)
+resp_DET = unlist(resp_DET)
+resp_NRLINE = unlist(resp_NRLINE)
+resp_maxL = unlist(resp_maxL)
+resp_L = unlist(resp_L)
+resp_ENTR = unlist(resp_ENTR)
+resp_LAM = unlist(resp_LAM)
+resp_TT = unlist(resp_TT)
+
+dfCRQAShuffle = data.frame(dfPar, HR_RR, HR_DET, HR_NRLINE, HR_maxL, HR_L, HR_ENTR, HR_LAM, HR_TT, resp_RR, resp_DET, resp_NRLINE, resp_maxL, resp_L, resp_ENTR, resp_LAM, resp_TT)
+
+#Insert NAs in delay, embed and radius as we do not calculate new values
+dfCRQAShuffle = mutate(dfCRQAShuffle, pair = "Shuffle")
+dfCRQAShuffle = mutate(dfCRQAShuffle, "HREmbed" = NA, "HRDelay" = NA, "HRRadius" = NA, "respDelay" = NA, "respEmbed" = NA, "respRadius" = NA)
+
+#bind df together
+allCRQA = rbind(dfCRQA, dfCRQAShuffle)
+#Save this!
+#write.csv(allCRQA, file = "CRQARealShuff.csv", row.names = F)
+
+#Test if they are significantly different from each other
+#Make a model?
+#One that predicts pair from HR_RR? Or HR_RR from pair? Are they significantly different? We cannot use the AUC here.
+#And we should probably cross-validate.
+#Someone should really make a package that makes the crossvalidation easier.
+#Decide to predict HR_RR from the variable pair
+#group and condition as fixed effects
+#Group as random slope (vary slope by group) and random intercept for condition (might be more coordination in one than another)
+library(lme4)
+modelHRRR = lm(HR_RR ~ pair, allCRQA)
+summary(modelHRRR)
+#HR is significantly more correlated for the normal pairs than the shuffled (t(1, 38) = -5.173, beta = -4,0352, p < 0.05). Thus, the real pairs had an RR that was 4.0352 higher than the shuffled pairs.
+
+#For respRR
+modelRespRR = lm(resp_RR ~ pair, allCRQA)
+summary(modelRespRR)
+
+#Respiration was not significantly different between shuffled pairs and real pairs. (t(38) = -1.654, beta = -0.2545, p < 0.05). Thus real pairs were no more coordinated than shuffled pairs.
+
+```
+ 
+ 
+### TRICKY! Creating controls: surrogate pair controls
+ - Per each real pair, identify at least one surrogate pair (matching one of the participants, with somebody doing the same task, but in a different pair). Tip: Celine will share a commented script
+ 
+```{r}
+#Maybe we could run the CRQA and make the pairs in the same loop - no need to save the files...
+# We have the files we used in the other analysis here:
+#filesAnalysis
+#Lets make seperate lists for the different conditions
+sync = NULL
+turn = NULL
+conv = NULL
+NT = 1
+NS = 1
+NC = 1
+
+
+for (file in filesAnalysis){
+  condition = unlist(strsplit(gsub('.{4}$', '', file), "_"))[4]
+  print(condition)
+  
+  if (condition == "TurnTaking"){
+    turn[NT] = file
+    NT = NT + 1}
+  if (condition == "Synchronous"){
+    sync[NS] = file
+    NS = NS + 1}
+  if (condition == "Conversation"){
+    conv[NC] = file
+    NC = NC + 1
+  }
+}
+
+
+#Now that we have made those, lets make them into a list of lists
+turn = list(turn)
+conv = list(conv)
+sync = list(sync)
+filesSurrogate = c(conv, sync, turn)
+
+#Things that we want to save!
+#HR
+HR_RR = NULL
+HR_DET = NULL
+HR_NRLINE = NULL
+HR_maxL = NULL
+HR_L = NULL
+HR_ENTR = NULL
+HR_LAM = NULL
+HR_TT = NULL
+#Resp
+resp_RR = NULL
+resp_DET = NULL
+resp_NRLINE = NULL
+resp_maxL = NULL
+resp_L = NULL
+resp_ENTR = NULL
+resp_LAM = NULL
+resp_TT = NULL
+#Other
+group = NULL
+conditionList = NULL
+#Taking study does not make sense
+
+#N
+N = 1
+library(stringr)
+#Now we start the loop of nervousnesssssssssss
+for (cond in filesSurrogate){
+  #Pack it out to have the list of the individual condition
+  cond = unlist(cond)
+  
+  #Using Celine's code here
+  #Extract numbers
+  num=str_extract_all(cond, "\\d+")
+  
+  #Extract type of condition we are looping through ATM
+  condition = unlist(strsplit(gsub('.{4}$', '', file), "_"))[4]
+  
+  #Make it into a transposed/tuppeddf and remove weird row names
+  df = as.data.frame(t(as.data.frame(num)))
+  rownames(df)<-NULL
+  
+  #Get the group numbers that are in this part/unique group numbes.
+  pairs=as.numeric(as.character(unique(df$V2)))
+  
+  #Surrogate list - pair everyone with everyone
+  SurrogateList <- expand.grid(a = pairs, b = pairs)
+  #Ensure that pairs are not paired with themselves
+  SurrogateList = subset(SurrogateList, a != b)
+  
+  #Loop through each pair in the condition
+  for (i in 1:nrow(SurrogateList)){
+    print(i)
+    #Recreate file names that we need for this pair
+    if(SurrogateList$a[i] == 3|SurrogateList$a[i] == 4){
+      f1 = paste("Study1_G", SurrogateList$a[i], sep = "")}
+    else{f1 = paste("Study2_G", SurrogateList$a[i], sep = "")}
+    
+    if(SurrogateList$b[i] == 3|SurrogateList$b[i] == 4){
+      f2 = paste("Study1_G", SurrogateList$b[i], sep = "")}
+    else{f2 = paste("Study2_G", SurrogateList$b[i], sep = "")}
+    
+    #now that we have participant name, we can just search for that pattern, as we only have this condition
+    file1 = paste("dataProc/", cond[grepl(f1, cond)], sep ="")
+    file2 = paste("dataProc/", cond[grepl(f2, cond)], sep="")
+    
+    #So, we need to read in the files
+    D1 = read.csv(file1)
+    D2 = read.csv(file2)
+    
+    #Ensure that both dataframes have the same length
+    if (nrow(D1)>nrow(D2)){
+      D1 = D1[1:nrow(D2),]
+    }
+    if (nrow(D1)<nrow(D2)){
+      D2 = D2[1:nrow(D1),]
+    }
+    
+    #creation of data frames for all the possibilities
+    #pair1person1 w pair2person2; 
+    d3=data.frame(Resp1=D1$Resp1,Resp2=D2$Resp2,HR1=D1$HR1,HR2=D2$HR2)
+    group[N] = paste(SurrogateList$a[i], "_1_", SurrogateList$b[i], "_2", sep ="")
+    
+    #pair1person2 w pair2person1;
+    d4=data.frame(Resp1=D2$Resp1,Resp2=D1$Resp2,HR1=D2$HR1,HR2=D1$HR2)
+    group[N+1] = paste(SurrogateList$a[i], "_2_", SurrogateList$b[i], "_1", sep ="")
+    
+    #pair1person1 w pair2person1;
+    d5=data.frame(Resp1=D1$Resp1,Resp2=D2$Resp1,HR1=D1$HR1,HR2=D2$HR1)
+    group[N+2] = paste(SurrogateList$a[i], "_1_", SurrogateList$b[i], "_1", sep ="")
+    
+    #pair1person2 w pair2person2
+    d6=data.frame(Resp1=D2$Resp2,Resp2=D1$Resp2,HR1=D2$HR2,HR2=D1$HR2)
+    group[N+3] = paste(SurrogateList$a[i], "_2_", SurrogateList$b[i], "_2", sep ="")
+    
+    
+    
+    k = 3
+    for (b in 1:4){
+      
+      if (k == 3){
+        df = d3
+      }
+      if (k == 4){
+        df = d4
+      }
+      if (k == 5){
+        df = d5
+      }
+      if (k == 6){
+        df = d6
+      }
+      k = k+1
+      
+      conditionList[N] = unlist(strsplit(gsub('.{4}$', '', cond[1]), "_"))[4]
+      print(condition[N])
+      
+        #HR----------------------------------------
+      resultsHR = try(crqa(df$HR1, df$HR2, delay = HRD, embed = HRE, radius = HRR, normalize = 0, rescale = 0, mindiagline = 2, minvertline = 2))
+  
+      if (length(resultsHR) > 1){
+        HR_RR[N] = resultsHR[1]
+        HR_DET [N] = resultsHR[2]
+        HR_NRLINE[N] = resultsHR[3]
+        HR_maxL[N] = resultsHR[4]
+        HR_L[N] = resultsHR[5]
+        HR_ENTR[N] = resultsHR[6]
+        HR_LAM[N] = resultsHR[8]
+        HR_TT[N] = resultsHR[9]
+      }
+      else{
+        HR_RR[N] = NA
+        HR_DET [N] = NA
+        HR_NRLINE[N] = NA
+        HR_maxL[N] = NA
+        HR_L[N] = NA
+        HR_ENTR[N] = NA
+        HR_LAM[N] = NA
+        HR_TT[N] = NA
+    
+      }
+      #Resp----------------------------------------
+      resultsResp = try(crqa(df$Resp1, df$Resp2, delay = rD, embed = rE, radius = rR, normalize = 0, rescale = 0, mindiagline = 2, minvertline = 2))
+  
+  
+      if (length(resultsResp) > 1){
+        resp_RR[N] = resultsResp[1]
+        resp_DET [N] = resultsResp[2]
+        resp_NRLINE[N] = resultsResp[3]
+        resp_maxL[N] = resultsResp[4]
+        resp_L[N] = resultsResp[5]
+        resp_ENTR[N] = resultsResp[6]
+        resp_LAM[N] = resultsResp[8]
+        resp_TT[N] = resultsResp[9]
+      }
+      else{
+        resp_RR[N] = NA
+        resp_DET [N] = NA
+        resp_NRLINE[N] = NA
+        resp_maxL[N] = NA
+        resp_L[N] = NA
+        resp_ENTR[N] = NA
+        resp_LAM[N] = NA
+        resp_TT[N] = NA
+    
+      }
+      
+      N = N+1
+    
+      print(N)
+    }
+    
+    
+  }
+  
+  }
+  
+
+HR_RR = unlist(HR_RR)
+HR_DET = unlist(HR_DET)
+HR_NRLINE = unlist(HR_NRLINE)
+HR_maxL = unlist(HR_maxL)
+HR_L = unlist(HR_L)
+HR_ENTR = unlist(HR_ENTR)
+HR_LAM = unlist(HR_LAM)
+HR_TT = unlist(HR_TT)
+#Resp
+resp_RR = unlist(resp_RR)
+resp_DET = unlist(resp_DET)
+resp_NRLINE = unlist(resp_NRLINE)
+resp_maxL = unlist(resp_maxL)
+resp_L = unlist(resp_L)
+resp_ENTR = unlist(resp_ENTR)
+resp_LAM = unlist(resp_LAM)
+resp_TT = unlist(resp_TT)
+
+
+
+
+
+
+
+condition = conditionList
+
+dfCRQASurr = data.frame(group, condition, HR_RR, HR_DET, HR_NRLINE, HR_maxL, HR_L, HR_ENTR, HR_LAM, HR_TT, resp_RR, resp_DET, resp_NRLINE, resp_maxL, resp_L, resp_ENTR, resp_LAM, resp_TT)
+
+#Insert NAs in delay, embed and radius as we do not calculate new values
+dfCRQASurr = mutate(dfCRQASurr, pair = "Surrogate")
+dfCRQASurr = mutate(dfCRQASurr, "HREmbed" = NA, "HRDelay" = NA, "HRRadius" = NA, "respDelay" = NA, "respEmbed" = NA, "respRadius" = NA, "study" = NA, "trial" = NA)
+
+write.csv(dfCRQASurr, file = "crqaSurr.csv", row.names = F)
+
+dfCRQAAll = rbind(allCRQA, dfCRQASurr)
+
+
+```
+
+ 
+ - Run crqa on all the surrogate pairs and save the output. NB. which delay, embed, radius parameters should you use?
+ We already did this.
+ We used the same embed, delay and radius as before.
+ 
+ 
+ - Test whether crqa shows a difference between real and surrogate pairs
+```{r}
+modelHRRR_surr = lm(HR_RR ~ pair, dfCRQAAll[dfCRQAAll$pair == "Real"|dfCRQAAll$pair == "Surrogate",])
+summary(modelHRRR_surr)
+#HR is not significantly more correlated for the normal pairs than the surrogate pairs (t(1, 474) = -0.603, beta = -0.4996, p > 0.05). Thus, the real pairs had did not have a higher requrance rate than surrogate pairs.
+
+#For RespRR 
+modelRespRR_surr = lm(resp_RR ~ pair, dfCRQAAll[dfCRQAAll$pair == "Real"|dfCRQAAll$pair == "Surrogate",])
+summary(modelRespRR_surr)
+#respiration was not significantly different for real and surrogate pairs (t(1, 474) = 0.359, beta = 0.0815, p > 0.05)
+
+
+
+#Make one where we downsample the surrogatelist
+
+dfCRQADown1 = dfCRQASurr[dfCRQASurr$condition == "TurnTaking",]
+#This is not in any way working. Take the first 7 participants instead.
+#dfCRQADown1[sample(dfCRQADown1$group, 7),]
+
+dfCRQADown2 = dfCRQASurr[dfCRQASurr$condition == "Conversation",]
+dfCRQADown3 = dfCRQASurr[dfCRQASurr$condition == "Synchronous",]
+dfCRQADown1[1:7,]
+
+
+dfCRQADown = rbind(allCRQA, dfCRQADown1[1:7,], dfCRQADown2[1:7,], dfCRQADown[1:7,])
+
+#For HRRR
+
+
+#Let us do the model again sampling only 20 pairs from the surrogate list -> We have a very badly balanced sample / Too many surrogates
+modelHRRR_surrdown = lm(HR_RR ~ pair, dfCRQADown[dfCRQADown$pair == "Real"|dfCRQADown$pair == "Surrogate",])
+summary(modelHRRR_surrdown)
+#Still not significantly different
+
+#For respiration
+modelResp_surrdown = lm(resp_RR ~ pair, dfCRQADown[dfCRQADown$pair == "Real"|dfCRQADown$pair == "Surrogate",])
+summary(modelResp_surrdown)
+
+#This is not significant either
+
+```
+
+
+### Testing effects of conditions
+ - make a (probably underpowered) mixed model testing effects of the different conditions on heart rate and respiration coordination
+ - N.B: would it make sense to include surrogate pairs? and if so how? what would that tell you?
+ 
+ if we include surrogate pairs it would tells us something about whether people were correlated due to the task or due to the individual pairs. We include them.
+ 
+```{r}
+#Make different models and test if they are better using anova including group as a random effect
+respCond0 = lmer(resp_RR ~ 1 + (1|group), dfCRQADown[dfCRQADown$pair == "Real"|dfCRQADown$pair == "Surrogate",])
+
+respCond1 = lmer(resp_RR ~ condition + (1|group), dfCRQADown[dfCRQADown$pair == "Real"|dfCRQADown$pair == "Surrogate",])
+
+respCond2 = lmer(resp_RR ~ condition + pair + (1|group), dfCRQADown[dfCRQADown$pair == "Real"|dfCRQADown$pair == "Surrogate",])
+
+anova(respCond0, respCond1)
+anova(respCond1, respCond2)
+#Adding surrogate pairs and having pair in the model does not make a difference/ explain more variance. However, predicting respiration from condition is more significant than the null-model.
+
+#FOr HR
+HRCond0 = lmer(HR_RR ~ 1 + (1|group), dfCRQADown[dfCRQADown$pair == "Real"|dfCRQADown$pair == "Surrogate",])
+
+HRCond1 = lmer(HR_RR ~ condition + (1|group), dfCRQADown[dfCRQADown$pair == "Real"|dfCRQADown$pair == "Surrogate",])
+
+HRCond2 = lmer(HR_RR ~ condition + pair + (1|group), dfCRQADown[dfCRQADown$pair == "Real"|dfCRQADown$pair == "Surrogate",])
+
+anova(HRCond0, HRCond1)
+anova(HRCond1, HRCond2)
+
+#Here none of the models are better than the null model.
+
+```
+
+### Effects of respiration coordination on heart rate coordination
+ - describe how you would test those.
+ - Optional: run the models and report them
+ 
+ 
+ I would tested by making a crossvalidated model that predicts HR from respiation and include a random effect of group. But no random effect of condition as this is not in our interest (condition and respiration might be correlated -> And therefore condition might explain some of the variance).
+ I would then  use the model to predict HR from repsiration rate on the test fold and calculate AUC for all test fold -> Which would give us a measure of correlation.
+ It would make sense to make this test, at it seems that pairs are 
