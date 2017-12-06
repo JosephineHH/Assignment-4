@@ -412,7 +412,7 @@ respRadius = unlist(RespRadius)
 
 
 
-dfPar = data.frame(study, group, trial, condition, HREmbed, HRDelay, HRRadius, respEmbed, respDelay, respRadius)
+dfCRQA = data.frame(study, group, trial, condition, HREmbed, HRDelay, HRRadius, respEmbed, respDelay, respRadius)
 
 
 
@@ -420,6 +420,9 @@ dfPar = data.frame(study, group, trial, condition, HREmbed, HRDelay, HRRadius, r
 
 #And now we can move on to the real crqa
 ```{r}
+#REad in dataframe we saved earlier, because we basically don't want to run the above loop again
+dfCRQA = read.csv("CRQARealShuff.csv")
+
 #Take the median of all the parameters
 HRD = median(dfCRQA$HRDelay, na.rm = T)
 #We are adding 1.2 to our HRRadius as Riccardo told us to do so. It is because we need RR to be around 4.
@@ -695,7 +698,9 @@ allCRQA = rbind(dfCRQA, dfCRQAShuffle)
 #Decide to predict HR_RR from the variable pair
 #group and condition as fixed effects
 #Group as random slope (vary slope by group) and random intercept for condition (might be more coordination in one than another)
-library(lme4)
+library(lmerTest)
+allCRQA = dfCRQA
+
 modelHRRR = lm(HR_RR ~ pair, allCRQA)
 summary(modelHRRR)
 #HR is significantly more correlated for the normal pairs than the shuffled (t(1, 38) = -5.173, beta = -4,0352, p < 0.05). Thus, the real pairs had an RR that was 4.0352 higher than the shuffled pairs.
@@ -984,6 +989,9 @@ summary(modelRespRR_surr)
 #respiration was not significantly different for real and surrogate pairs (t(1, 474) = 0.359, beta = 0.0815, p > 0.05)
 
 
+#Read stuff in again as R was closed in the meantime
+dfCRQASurr = read.csv("crqaSurr.csv")
+allCRQA = read.csv("CRQARealShuff.csv")
 
 #Make one where we downsample the surrogatelist
 
@@ -996,7 +1004,7 @@ dfCRQADown3 = dfCRQASurr[dfCRQASurr$condition == "Synchronous",]
 dfCRQADown1[1:7,]
 
 
-dfCRQADown = rbind(allCRQA, dfCRQADown1[1:7,], dfCRQADown2[1:7,], dfCRQADown[1:7,])
+dfCRQADown = rbind(allCRQA, dfCRQADown1[1:7,], dfCRQADown2[1:7,], dfCRQADown3[1:7,])
 
 #For HRRR
 
@@ -1022,26 +1030,30 @@ summary(modelResp_surrdown)
  if we include surrogate pairs it would tells us something about whether people were correlated due to the task or due to the individual pairs. We include them.
  
 ```{r}
+
 #Make different models and test if they are better using anova including group as a random effect
-respCond0 = lmer(resp_RR ~ 1 + (1|group), dfCRQADown[dfCRQADown$pair == "Real"|dfCRQADown$pair == "Surrogate",])
+respCond0 = lmer(resp_RR ~ pair + (1|group), dfCRQADown[dfCRQADown$pair == "Real"|dfCRQADown$pair == "Surrogate",])
 
-respCond1 = lmer(resp_RR ~ condition + (1|group), dfCRQADown[dfCRQADown$pair == "Real"|dfCRQADown$pair == "Surrogate",])
+respCond1 = lmer(resp_RR ~ condition + pair + (1|group), dfCRQADown[dfCRQADown$pair == "Real"|dfCRQADown$pair == "Surrogate",])
 
-respCond2 = lmer(resp_RR ~ condition + pair + (1|group), dfCRQADown[dfCRQADown$pair == "Real"|dfCRQADown$pair == "Surrogate",])
+respCond2 = lmer(resp_RR ~ condition*pair + (1|group), dfCRQADown[dfCRQADown$pair == "Real"|dfCRQADown$pair == "Surrogate",])
+
 
 anova(respCond0, respCond1)
 anova(respCond1, respCond2)
+
 #Adding surrogate pairs and having pair in the model does not make a difference/ explain more variance. However, predicting respiration from condition is more significant than the null-model.
 
 #FOr HR
-HRCond0 = lmer(HR_RR ~ 1 + (1|group), dfCRQADown[dfCRQADown$pair == "Real"|dfCRQADown$pair == "Surrogate",])
+HRCond0 = lmer(HR_RR ~ pair + (1|group), dfCRQADown[dfCRQADown$pair == "Real"|dfCRQADown$pair == "Surrogate",])
 
-HRCond1 = lmer(HR_RR ~ condition + (1|group), dfCRQADown[dfCRQADown$pair == "Real"|dfCRQADown$pair == "Surrogate",])
+HRCond1 = lmer(HR_RR ~ condition + pair + (1|group), dfCRQADown[dfCRQADown$pair == "Real"|dfCRQADown$pair == "Surrogate",])
 
-HRCond2 = lmer(HR_RR ~ condition + pair + (1|group), dfCRQADown[dfCRQADown$pair == "Real"|dfCRQADown$pair == "Surrogate",])
+HRCond2 = lmer(HR_RR ~ condition*pair + (1|group), dfCRQADown[dfCRQADown$pair == "Real"|dfCRQADown$pair == "Surrogate",])
+
 
 anova(HRCond0, HRCond1)
-anova(HRCond1, HRCond2)
+anova(HRCond0, HRCond2)
 
 #Here none of the models are better than the null model.
 
